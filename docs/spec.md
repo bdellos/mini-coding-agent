@@ -36,6 +36,17 @@
 - Compare the user's prompt to the name and description of each skill using **word overlap**: lowercase everything, split into words, ignore common words such as "the" and "a", then score how many words they share, from 0 to 1. 
     - score = (number of shared words) / (number of unique words in the skill's name and description)
 - If the best score is at or above **0.2**, that skill is triggered
+    - **Threshold review (Step 11):** 0.2 was kept.
+    - Demo prompts: D1 scored 0.35 (triggers `validate-environment`), D2 scored 0.0 (no skill).
+    - A wider check of 17 prompts against the Lab 4 skills found no unrelated prompt above 0.059,
+      so 0.2 leaves a wide margin against triggering the wrong skill.
+    - **Known limitation:** reworded prompts that share few words with a skill's description can
+      score below 0.2 and miss (e.g. "Is the vacuum robot environment set up correctly?" scored 0.15).
+      In that case the agent can still load the skill itself with `use_skill`.
+    - A threshold of 0.15 would catch those prompts, but it was not adopted: the plan's criterion
+      was already met, the committed demo evidence was produced at 0.2, and the 17 test prompts
+      were written by the developer, so tuning to them risks overfitting.
+
 - **Only one skill is triggered per prompt**, so if multiple skills are above the threshold, choose the skill with the highest score.
 - If every skill's score is below the threshold, do not execute any skills.
 

@@ -60,4 +60,17 @@ Actual (attempts 2–3, 19:05 and 19:06): Pass. The skill triggered at 0.35 and 
 | The agent uses the Lab 5 skill in the Lab 4 repo, and the log shows it | D1 |
 
 ## Results summary
-_(fill in after testing: what passed, what failed, any threshold changes)_
+## Threshold review (Step 11)
+
+| Threshold | Correct (of 17) | Notes |
+|-----------|-----------------|-------|
+| 0.10 | 17 | |
+| 0.15 | 17 | |
+| **0.20 (kept)** | **15** | Misses 2 reworded prompts (scores 0.15 and 0.176) |
+| 0.25 | 12 | |
+| 0.30 | 9 | |
+
+- Highest score from an unrelated prompt: 0.059. Lowest score from a relevant prompt: 0.15.
+- **Result:** Pass. D1 (0.35) and D2 (0.0) behave as expected at 0.2, so no change was needed.
+  See spec.md for the reasoning and the known limitation.
+
