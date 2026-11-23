@@ -24,7 +24,7 @@
 ## Regression tests
 | ID | What it checks | Expected result | Result |
 |----|----------------|-----------------|--------|
-| R1 | All original repo tests | All pass | 18 passed, 1 skipped (baseline)|
+| R1 | All original repo tests | All pass | PASS: 55 passed, 1 skipped on Python 3.15 and 3.10. The original `main` test file run unmodified against the new code gives 18 passed, 1 skipped, matching the Step 1 baseline. The skip is the symlink test (Windows permissions). Lint shows 13 issues, all pre-existing on `main`, none new.|
 
 ## Demo tests (Lab 4, qwen3.5:4b)
 
