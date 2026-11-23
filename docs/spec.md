@@ -52,6 +52,8 @@
 - A skill's instructions are added to the agent's prompt under the heading "Active skill".
 - The agent follows the instructions with its existing tools.
 - Any risky step (e.g. running a command) requires user approval.
+- Instructions are capped at 2,000 characters.
+- The active skill is reset at the start of every request.
 
 ## Logging
 - **Where:** `.mini-coding-agent/skills.log.jsonl`
@@ -66,6 +68,7 @@
 - For tool-triggered entries, the prompt is the current user request and scores are left empty.
 - `skill_path`: the path of the executed `SKILL.md`, or NULL if no skill was chosen
 - `requested`: for tool entries, the skill name the model asked for (recorded even if it does not exist).
+- If the workspace has no skills, no decision is logged.
 
 ## Constraints
 - Run on a small local model (qwen3.5:4b using Ollama)

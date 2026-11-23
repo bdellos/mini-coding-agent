@@ -44,7 +44,8 @@ IGNORED_PATH_NAMES = {".git", ".mini-coding-agent", "__pycache__", ".pytest_cach
 # 4) Context Reduction And Output Management -> clip, history_text
 # 5) Transcripts, Memory, And Resumption -> SessionStore, record, note_tool, ask, reset
 # 6) Delegation And Bounded Subagents -> tool_delegate
-# 7) Agent Skills -> Skill, parse_skill_file, SkillRegistry, tokenize, normalize_word, SkillLogger
+# 7) Agent Skills -> Skill, parse_skill_file, SkillRegistry, tokenize, normalize_word, SkillLogger,
+#    trigger_skill_from_prompt, active_skill_text
 
 
 def now():
@@ -177,6 +178,9 @@ SKILL_LOG_NAME = "skills.log.jsonl"
 # A skill is triggered from the prompt only if its similarity score is at or
 # above this value (see docs/spec.md, "Prompt-triggered skills").
 SKILL_THRESHOLD = 0.2
+# Upper limit on skill instructions placed in the prompt, so one skill cannot
+# crowd out the rest of a small model's context window (~4k tokens).
+MAX_SKILL_CHARS = 2000
 # Common words that carry no meaning for matching. "skill" is included because
 # almost every description says "this skill ...", which would inflate scores.
 STOPWORDS = frozenset({
@@ -493,6 +497,7 @@ class MiniAgent:
         # so the use_skill tool and the skill list in the prompt can use them.
         self.skills = skills if skills is not None else SkillRegistry.discover(self.root)
         self.skill_logger = SkillLogger(self.root / ".mini-coding-agent" / SKILL_LOG_NAME)
+        self.active_skill = None  # set per request by trigger_skill_from_prompt()
         self.tools = self.build_tools()
         self.prefix = self.build_prefix()
         self.session_path = self.session_store.save(self.session)
@@ -660,12 +665,46 @@ class MiniAgent:
     #### 2) Prompt Shape And Cache Reuse (Continued) #######
     ########################################################
     def prompt(self, user_message):
-        return "\n\n".join([
+        sections = [
             self.prefix,
             self.memory_text(),
             "Transcript:\n" + self.history_text(),
-            "Current user request:\n" + user_message,
+        ]
+        # 7) Agent Skills: the active skill sits right before the request so a
+        # small model reads the instructions next to the task they apply to.
+        if self.active_skill:
+            sections.append(self.active_skill_text())
+        sections.append("Current user request:\n" + user_message)
+        return "\n\n".join(sections)
+
+    def active_skill_text(self):
+        skill = self.active_skill
+        return "\n".join([
+            "Active skill:",
+            f"- name: {skill['name']}",
+            "- Follow these skill instructions to handle the current user request, using your tools for each step:",
+            clip(skill["instructions"], MAX_SKILL_CHARS),
         ])
+
+    ###############################################
+    #### 7) Agent Skills (Continued) #############
+    ###############################################
+    def trigger_skill_from_prompt(self, user_message):
+        """Run the similarity check on a new request and activate the best skill.
+
+        The decision is logged whether or not a skill is chosen. The chosen
+        skill's instructions are only read from disk at this point. Returns the
+        match result, or None when the workspace has no skills at all.
+        """
+        self.active_skill = None
+        if not len(self.skills):
+            return None
+        result = self.skills.match(user_message)
+        skill = self.skills.get(result["chosen"]) if result["chosen"] else None
+        self.skill_logger.log_prompt_match(user_message, result, skill)
+        if skill:
+            self.active_skill = {"name": skill.name, "instructions": skill.instructions()}
+        return result
 
     ###############################################
     #### 5) Session Memory (Continued) ###########
@@ -687,6 +726,7 @@ class MiniAgent:
         if not memory["task"]:
             memory["task"] = clip(user_message.strip(), 300)
         self.record({"role": "user", "content": user_message, "created_at": now()})
+        self.trigger_skill_from_prompt(user_message)
 
         tool_steps = 0
         attempts = 0

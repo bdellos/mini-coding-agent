@@ -693,3 +693,98 @@ def test_welcome_screen_lists_discovered_skills(tmp_path):
     assert "SKILLS     demo" in with_skills
     assert "SKILLS     none" in without_skills
     assert len({len(line) for line in with_skills.splitlines()}) == 1
+
+
+# ---------------------------------------------------------------------------
+# 7) Agent Skills: prompt-triggered skills (plan.md Step 6, tests.md T8)
+# ---------------------------------------------------------------------------
+VALIDATE_STEPS = "1. Read src/environment.py\n2. Check every cell for boundary moves\n3. Report terminal states"
+
+
+def build_skill_agent(tmp_path, outputs):
+    skills = tmp_path / ".claude" / "skills"
+    write_skill(skills, "validate-environment", name="validate-environment", description=LAB5_VALIDATE, body=VALIDATE_STEPS)
+    write_skill(skills, "analyze-episode", name="analyze-episode", description=LAB5_ANALYZE, body="1. Look for loops")
+    return build_agent(tmp_path, outputs)
+
+
+def test_matching_prompt_puts_skill_under_active_skill(tmp_path):
+    agent = build_skill_agent(tmp_path, ["<final>Validated.</final>"])
+
+    agent.ask("Validate the grid environment boundaries")
+
+    sent = agent.model_client.prompts[0]
+    assert "Active skill:" in sent.splitlines()
+    assert "- name: validate-environment" in sent
+    assert VALIDATE_STEPS in sent
+    assert "1. Look for loops" not in sent  # only the chosen skill is loaded
+    assert sent.index("Active skill:") < sent.index("Current user request:")
+
+
+def test_unrelated_prompt_adds_no_active_skill(tmp_path):
+    agent = build_skill_agent(tmp_path, ["<final>Hello.</final>"])
+
+    agent.ask("Write a hello world script")
+
+    assert "Active skill:" not in agent.model_client.prompts[0]
+    assert agent.active_skill is None
+
+
+def test_ask_logs_the_prompt_decision(tmp_path):
+    agent = build_skill_agent(tmp_path, ["<final>Validated.</final>", "<final>Hello.</final>"])
+
+    agent.ask("Validate the grid environment boundaries")
+    agent.ask("Write a hello world script")
+
+    first, second = read_log(tmp_path / ".mini-coding-agent" / "skills.log.jsonl")
+    assert first["trigger"] == "prompt"
+    assert first["chosen"] == "validate-environment"
+    assert set(first["scores"]) == {"validate-environment", "analyze-episode"}
+    assert second["chosen"] is None
+
+
+def test_active_skill_stays_for_every_step_of_one_request(tmp_path):
+    (tmp_path / "notes.txt").write_text("grid notes\n", encoding="utf-8")
+    agent = build_skill_agent(
+        tmp_path,
+        [
+            '<tool>{"name":"read_file","args":{"path":"notes.txt","start":1,"end":1}}</tool>',
+            "<final>Validated.</final>",
+        ],
+    )
+
+    agent.ask("Validate the grid environment boundaries")
+
+    assert len(agent.model_client.prompts) == 2
+    assert all(VALIDATE_STEPS in sent for sent in agent.model_client.prompts)
+
+
+def test_active_skill_resets_on_next_request(tmp_path):
+    agent = build_skill_agent(tmp_path, ["<final>Validated.</final>", "<final>Hello.</final>"])
+
+    agent.ask("Validate the grid environment boundaries")
+    agent.ask("Write a hello world script")
+
+    assert "Active skill:" in agent.model_client.prompts[0]
+    assert "Active skill:" not in agent.model_client.prompts[1]
+
+
+def test_no_skills_means_no_skill_log(tmp_path):
+    agent = build_agent(tmp_path, ["<final>Done.</final>"])
+
+    agent.ask("Validate the grid environment boundaries")
+
+    assert not (tmp_path / ".mini-coding-agent" / "skills.log.jsonl").exists()
+    assert "Active skill:" not in agent.model_client.prompts[0]
+
+
+def test_long_skill_instructions_are_clipped(tmp_path):
+    write_skill(tmp_path / "skills", "big", name="validate-environment", description=LAB5_VALIDATE, body="x" * 5000)
+    agent = build_agent(tmp_path, ["<final>Done.</final>"])
+
+    agent.ask("Validate the grid environment boundaries")
+
+    sent = agent.model_client.prompts[0]
+    assert "x" * 2000 in sent
+    assert "x" * 2001 not in sent
+    assert "[truncated" in sent
