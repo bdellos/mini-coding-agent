@@ -30,6 +30,7 @@
 - **Edge cases:**
     - Skip a `SKILL.md` file that does not contain a name or description
     - If two skills share a name, the one in `skills/` trumps `.claude/skills`
+- Discovered skills are listed on the agent's welcome screen.
 
 ## Prompt-triggered skills (the similarity check)
 - Compare the user's prompt to the name and description of each skill using **word overlap**: lowercase everything, split into words, ignore common words such as "the" and "a", then score how many words they share, from 0 to 1. 

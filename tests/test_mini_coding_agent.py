@@ -651,3 +651,45 @@ def test_log_write_failure_does_not_crash(tmp_path):
     logger.log_tool_use("anything", "missing", None)
 
     assert "could not write skill log" in printed[0]
+
+
+# ---------------------------------------------------------------------------
+# 7) Agent Skills: loading skills on agent startup (plan.md Step 5, tests.md T4)
+# ---------------------------------------------------------------------------
+def test_agent_starts_normally_with_no_skill_folders(tmp_path):
+    agent = build_agent(tmp_path, ["<final>Done.</final>"])
+
+    assert len(agent.skills) == 0
+    assert agent.ask("Say hi") == "Done."
+
+
+def test_agent_discovers_skills_on_startup(tmp_path):
+    write_skill(tmp_path / ".claude" / "skills", "validate-environment", name="validate-environment", description=LAB5_VALIDATE)
+    write_skill(tmp_path / "skills", "pr-review", name="pr-review", description="Review a pull request.")
+
+    agent = build_agent(tmp_path, [])
+
+    assert sorted(agent.skills.names()) == ["pr-review", "validate-environment"]
+    assert agent.skill_logger.path == tmp_path / ".mini-coding-agent" / "skills.log.jsonl"
+
+
+def test_delegate_child_reuses_parent_skills(tmp_path):
+    write_skill(tmp_path / "skills", "demo", name="demo")
+    agent = build_agent(tmp_path, ["<final>child done</final>"])
+
+    with patch("mini_coding_agent.SkillRegistry.discover") as discover:
+        agent.tool_delegate({"task": "inspect README.md", "max_steps": 1})
+
+    discover.assert_not_called()
+
+
+def test_welcome_screen_lists_discovered_skills(tmp_path):
+    write_skill(tmp_path / "skills", "demo", name="demo")
+    with_skills = build_welcome(build_agent(tmp_path, []), model="qwen3.5:4b", host="http://127.0.0.1:11434")
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+    without_skills = build_welcome(build_agent(empty_dir, []), model="qwen3.5:4b", host="http://127.0.0.1:11434")
+
+    assert "SKILLS     demo" in with_skills
+    assert "SKILLS     none" in without_skills
+    assert len({len(line) for line in with_skills.splitlines()}) == 1

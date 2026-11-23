@@ -11,7 +11,7 @@
 | T1 | Discovery | Skills in `skills/` and `.claude/skills/` are found | Both skills listed | PASS|
 | T2 | Discovery | A `SKILL.md` missing name or description is skipped | Skipped, no crash | PASS|
 | T3 | Discovery | Same skill name in both folders | `skills/` version wins | PASS|
-| T4 | Discovery | Workspace with no skill folders | Agent starts normally, no skills | |
+| T4 | Discovery | Workspace with no skill folders | Agent starts normally, no skills | PASS|
 | T5 | Similarity | "Validate the grid environment boundaries" | Picks `validate-environment` | PASS|
 | T6 | Similarity | "Write a hello world script" | No skill chosen | PASS|
 | T7 | Similarity | Word endings ("validating" vs "validates") | Treated as the same word | PASS|

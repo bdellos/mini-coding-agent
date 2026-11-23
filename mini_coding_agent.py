@@ -172,6 +172,8 @@ class SessionStore:
 # win when two skills share a name, so `skills/` overrides `.claude/skills/`.
 SKILL_DIRS = ("skills", ".claude/skills")
 SKILL_FILE = "SKILL.md"
+# Decision log file, stored in the workspace's .mini-coding-agent/ folder.
+SKILL_LOG_NAME = "skills.log.jsonl"
 # A skill is triggered from the prompt only if its similarity score is at or
 # above this value (see docs/spec.md, "Prompt-triggered skills").
 SKILL_THRESHOLD = 0.2
@@ -467,6 +469,7 @@ class MiniAgent:
         depth=0,
         max_depth=1,
         read_only=False,
+        skills=None,
     ):
         self.model_client = model_client
         self.workspace = workspace
@@ -485,6 +488,11 @@ class MiniAgent:
             "history": [],
             "memory": {"task": "", "files": [], "notes": []},
         }
+        # 7) Agent Skills: discover skills once at startup (names and descriptions
+        # only) and set up the decision log. Done before build_tools/build_prefix
+        # so the use_skill tool and the skill list in the prompt can use them.
+        self.skills = skills if skills is not None else SkillRegistry.discover(self.root)
+        self.skill_logger = SkillLogger(self.root / ".mini-coding-agent" / SKILL_LOG_NAME)
         self.tools = self.build_tools()
         self.prefix = self.build_prefix()
         self.session_path = self.session_store.save(self.session)
@@ -1092,6 +1100,7 @@ class MiniAgent:
             depth=self.depth + 1,
             max_depth=self.max_depth,
             read_only=True,
+            skills=self.skills,
         )
         child.session["memory"]["task"] = task
         child.session["memory"]["notes"] = [clip(self.history_text(), 300)]
@@ -1135,6 +1144,7 @@ def build_welcome(agent, model, host):
             row("WORKSPACE  " + middle(agent.workspace.cwd, inner - 11)),
             pair("MODEL", model, "BRANCH", agent.workspace.branch),
             pair("APPROVAL", agent.approval_policy, "SESSION", agent.session["id"]),
+            row("SKILLS     " + (", ".join(agent.skills.names()) or "none")),
             row(""),
         ]
     )
