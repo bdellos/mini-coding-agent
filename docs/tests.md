@@ -12,9 +12,9 @@
 | T2 | Discovery | A `SKILL.md` missing name or description is skipped | Skipped, no crash | PASS|
 | T3 | Discovery | Same skill name in both folders | `skills/` version wins | PASS|
 | T4 | Discovery | Workspace with no skill folders | Agent starts normally, no skills | |
-| T5 | Similarity | "Validate the grid environment boundaries" | Picks `validate-environment` | |
-| T6 | Similarity | "Write a hello world script" | No skill chosen | |
-| T7 | Similarity | Word endings ("validating" vs "validates") | Treated as the same word | |
+| T5 | Similarity | "Validate the grid environment boundaries" | Picks `validate-environment` | PASS|
+| T6 | Similarity | "Write a hello world script" | No skill chosen | PASS|
+| T7 | Similarity | Word endings ("validating" vs "validates") | Treated as the same word | PASS|
 | T8 | Prompt trigger | Matching prompt with the fake model | Skill text appears under "Active skill" in the prompt | |
 | T9 | Tool trigger | `use_skill` with a known name | Returns the skill's instructions | |
 | T10 | Tool trigger | `use_skill` with an unknown name | Error listing valid names | |

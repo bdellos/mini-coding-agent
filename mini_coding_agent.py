@@ -44,7 +44,7 @@ IGNORED_PATH_NAMES = {".git", ".mini-coding-agent", "__pycache__", ".pytest_cach
 # 4) Context Reduction And Output Management -> clip, history_text
 # 5) Transcripts, Memory, And Resumption -> SessionStore, record, note_tool, ask, reset
 # 6) Delegation And Bounded Subagents -> tool_delegate
-# 7) Agent Skills -> Skill, parse_skill_file, SkillRegistry
+# 7) Agent Skills -> Skill, parse_skill_file, SkillRegistry, tokenize, normalize_word
 
 
 def now():
@@ -172,6 +172,51 @@ class SessionStore:
 # win when two skills share a name, so `skills/` overrides `.claude/skills/`.
 SKILL_DIRS = ("skills", ".claude/skills")
 SKILL_FILE = "SKILL.md"
+# A skill is triggered from the prompt only if its similarity score is at or
+# above this value (see docs/spec.md, "Prompt-triggered skills").
+SKILL_THRESHOLD = 0.2
+# Common words that carry no meaning for matching. "skill" is included because
+# almost every description says "this skill ...", which would inflate scores.
+STOPWORDS = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "been", "but", "by", "can", "could",
+    "do", "does", "for", "from", "had", "has", "have", "how", "i", "if", "in", "into",
+    "is", "it", "its", "me", "my", "no", "not", "of", "on", "or", "our", "please",
+    "should", "so", "such", "than", "that", "the", "their", "them", "then", "there",
+    "these", "they", "this", "to", "us", "was", "we", "were", "what", "when", "where",
+    "which", "while", "who", "why", "will", "with", "would", "you", "your",
+    "skill", "skills", "thing", "things", "like", "any", "all",
+})
+
+
+def normalize_word(word):
+    """Reduce a word to a simple base form so that variants match.
+
+    validate / validates / validated / validating -> "validat"
+    boundary / boundaries -> "boundary"
+    This is a deliberately small rule set, not a full stemmer.
+    """
+    if len(word) > 4 and word.endswith("ies"):
+        word = word[:-3] + "y"
+    elif len(word) > 5 and word.endswith("ing"):
+        word = word[:-3]
+    elif len(word) > 4 and word.endswith("ed"):
+        word = word[:-2]
+    elif len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+        word = word[:-1]
+    if len(word) > 3 and word.endswith("e"):
+        word = word[:-1]
+    return word
+
+
+def tokenize(text):
+    """Turn text into a set of normalized, meaningful words.
+
+    Lowercases, splits on anything that is not a letter or digit (so hyphens
+    split `validate-environment` into two words), drops stopwords and
+    one-letter fragments, then normalizes word endings.
+    """
+    words = re.findall(r"[a-z0-9]+", str(text).lower())
+    return {normalize_word(word) for word in words if len(word) > 1 and word not in STOPWORDS}
 
 
 def parse_skill_file(path):
@@ -262,6 +307,33 @@ class SkillRegistry:
 
     def __iter__(self):
         return iter(self.skills.values())
+
+    @staticmethod
+    def score(prompt_words, skill):
+        """Fraction of the skill's keywords (name + description) found in the prompt."""
+        skill_words = tokenize(f"{skill.name} {skill.description}")
+        if not skill_words:
+            return 0.0
+        return len(prompt_words & skill_words) / len(skill_words)
+
+    def match(self, prompt, threshold=SKILL_THRESHOLD):
+        """Run the similarity check for a prompt against every skill.
+
+        Returns a dict with the score of every skill, the threshold, and the
+        chosen skill name (or None if no score reaches the threshold). At most
+        one skill is chosen: the highest score, ties broken alphabetically.
+        """
+        prompt_words = tokenize(prompt)
+        scores = {skill.name: self.score(prompt_words, skill) for skill in self}
+        ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
+        best_name, best_score = ranked[0] if ranked else (None, 0.0)
+        chosen = best_name if best_name is not None and best_score >= threshold else None
+        return {
+            "scores": {name: round(value, 3) for name, value in scores.items()},
+            "threshold": threshold,
+            "chosen": chosen,
+            "best_score": round(best_score, 3),
+        }
 
 
 class FakeModelClient:

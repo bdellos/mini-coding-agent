@@ -10,6 +10,8 @@ from mini_coding_agent import (
     SkillRegistry,
     WorkspaceContext,
     build_welcome,
+    normalize_word,
+    tokenize,
 )
 
 
@@ -467,3 +469,92 @@ def test_skill_instructions_are_loaded_on_demand(tmp_path):
 
     path.write_text("---\nname: demo\ndescription: A demo skill.\n---\nUpdated steps\n", encoding="utf-8")
     assert skill.instructions() == "Updated steps"
+
+
+# ---------------------------------------------------------------------------
+# 7) Agent Skills: similarity check (plan.md Step 3, tests.md T5-T7)
+# ---------------------------------------------------------------------------
+# Descriptions copied from the Lab 5 skills so matching is tested on real data.
+LAB5_VALIDATE = "This skill validates the environment for things like boundaries and terminal states."
+LAB5_ANALYZE = (
+    "Check the sequence of states, actions, and rewards. Identify any loops, dead ends, "
+    "or other issues in the episode. Return a summary of the episode analysis."
+)
+
+
+def build_lab5_registry(tmp_path):
+    skills = tmp_path / ".claude" / "skills"
+    write_skill(skills, "validate-environment", name="validate-environment", description=LAB5_VALIDATE)
+    write_skill(skills, "analyze-episode", name="analyze-episode", description=LAB5_ANALYZE)
+    return SkillRegistry.discover(tmp_path)
+
+
+def test_word_endings_are_treated_as_the_same_word():
+    variants = {normalize_word(word) for word in ["validate", "validates", "validated", "validating"]}
+    assert len(variants) == 1
+    assert normalize_word("boundaries") == normalize_word("boundary")
+    assert normalize_word("states") == normalize_word("state")
+
+
+def test_tokenize_splits_hyphens_and_drops_common_words():
+    words = tokenize("The validate-environment skill checks the grid's boundaries")
+    assert normalize_word("validate") in words
+    assert normalize_word("environment") in words
+    assert normalize_word("grid") in words
+    assert "the" not in words
+    assert "skill" not in words
+    assert "s" not in words  # leftover from "grid's"
+
+
+def test_grid_validation_prompt_picks_validate_environment(tmp_path):
+    registry = build_lab5_registry(tmp_path)
+
+    result = registry.match("Validate the grid environment boundaries")
+
+    assert result["chosen"] == "validate-environment"
+    assert result["scores"]["validate-environment"] >= result["threshold"]
+    assert result["scores"]["validate-environment"] > result["scores"]["analyze-episode"]
+
+
+def test_episode_prompt_picks_analyze_episode(tmp_path):
+    registry = build_lab5_registry(tmp_path)
+
+    result = registry.match("Analyze this episode for loops and dead ends")
+
+    assert result["chosen"] == "analyze-episode"
+
+
+def test_unrelated_prompt_picks_no_skill(tmp_path):
+    registry = build_lab5_registry(tmp_path)
+
+    result = registry.match("Write a hello world script")
+
+    assert result["chosen"] is None
+    assert all(score < result["threshold"] for score in result["scores"].values())
+
+
+def test_match_reports_every_skill_score_and_threshold(tmp_path):
+    registry = build_lab5_registry(tmp_path)
+
+    result = registry.match("Validate the grid environment boundaries")
+
+    assert set(result["scores"]) == {"validate-environment", "analyze-episode"}
+    assert result["threshold"] == 0.2
+    assert all(0.0 <= score <= 1.0 for score in result["scores"].values())
+
+
+def test_score_exactly_at_threshold_triggers_skill(tmp_path):
+    # Five keywords in the skill; the prompt shares one of them -> 1/5 = 0.2.
+    write_skill(tmp_path / "skills", "five", name="alpha", description="bravo charlie delta echo")
+    registry = SkillRegistry.discover(tmp_path)
+
+    result = registry.match("alpha")
+
+    assert result["scores"]["alpha"] == 0.2
+    assert result["chosen"] == "alpha"
+
+
+def test_match_with_no_skills_chooses_nothing(tmp_path):
+    result = SkillRegistry.discover(tmp_path).match("Validate the grid environment boundaries")
+
+    assert result == {"scores": {}, "threshold": 0.2, "chosen": None, "best_score": 0.0}
