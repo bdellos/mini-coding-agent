@@ -31,14 +31,22 @@
 ### D1: Matching prompt
 - **Prompt:** "Validate the grid environment in this repo: check its boundaries and terminal states."
 - **Expected:** `validate-environment` is triggered; the agent follows its steps on `src/environment.py`.
-- **Actual:** _(fill in)_
-- **Log excerpt:** _(paste the log line)_
+- **Actual:** Actual (attempt 1, 18:51): `validate-environment` triggered at 0.35, but the agent re-read` src/environment.py` until the 10-step limit and gave no answer. Cause: the Active skill section came after the transcript, so the model kept re-running step 1. Fix: commit 2b4d670 moved the skill before the transcript, added progress cues and made repeated `use_skill` calls return a short reminder.
+Actual (attempts 2–3, 19:05 and 19:06): Pass. The skill triggered at 0.35 and the agent finished in 3 and 10 tool steps. Both runs reported the `START_POSITION = (1, 1)` bug and "terminal states not defined"; attempt 2 also caught the context.md contradiction. No files were modified.
+- **Log excerpt:** 
+```json
+{"time": "2026-11-23T02:05:27.688531+00:00", "trigger": "prompt", "prompt": "Validate the grid environment in this repo: check its boundaries and terminal states.", "scores": {"analyze-episode": 0.059, "validate-environment": 0.35}, "threshold": 0.2, "chosen": "validate-environment", "skill_path": "C:\\Users\\thehe\\Documents\\CS440\\Lab4\\.claude\\skills\\validate-environment\\SKILL.md"}
+```
 
 ### D2: Unrelated prompt
 - **Prompt:** "Write a hello world script."
 - **Expected:** No skill triggered; the log shows all scores below the threshold.
-- **Actual:** _(fill in)_
-- **Log excerpt:** _(paste the log line)_
+- **Actual:** Pass in all three sessions. Scores were 0.0 for both skills, so no skill was triggered, and `write_file` was denied. In attempt 1, the model also called `use_skill` for both skills after the denial; those calls were logged with trigger tool, which is real-model evidence of the agent-triggered path. A stray "n" input at 19:06 was logged with no skill chosen.
+- **Log excerpt:** 
+```json
+{"time": "2026-11-23T02:05:42.193924+00:00", "trigger": "prompt", "prompt": "Write a hello world script.", "scores": {"analyze-episode": 0.0, "validate-environment": 0.0}, "threshold": 0.2, "chosen": null, "skill_path": null}
+```
+
 
 ## Acceptance criteria checklist
 | Criterion (from spec.md) | Verified by |
