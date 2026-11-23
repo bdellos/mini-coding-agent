@@ -14,6 +14,7 @@ It is a minimal local agent loop with:
 - approval handling for risky tools
 - transcript and memory persistence
 - bounded delegation
+- agent skills: discovery, similarity-based triggering, and decision logging (see [Agent Skills](#agent-skills-seventh-component))
 
 The model backend is currently based on Ollama.
 
@@ -47,6 +48,55 @@ This coding harness is organized around six practical building blocks:
    The runtime keeps both a full durable transcript and a smaller working memory so sessions can be resumed while preserving important state via working memory.
 6. **Delegation and bounded subagents**  
    Scoped subtasks can be delegated to helper agents that inherit enough context to help (but operate within limits).
+
+&nbsp;
+## Agent Skills (Seventh Component)
+
+A **skill** is a folder containing a `SKILL.md` file: a short `name` and `description`, followed by step-by-step instructions written in plain English. The skills component lets the agent find skills in the workspace, decide when one applies, follow its instructions, and log every decision.
+
+```text
+skills/                      # checked first
+└── pr-review/
+    └── SKILL.md
+.claude/skills/              # also checked; skills/ wins on duplicate names
+└── validate-environment/
+    └── SKILL.md
+```
+
+```markdown
+---
+name: validate-environment
+description: Validate the vacuum robot grid environment. Check the grid size, start position, ...
+---
+Steps:
+1. Call read_file on src/environment.py ...
+```
+
+How it works:
+
+- **Discovery:** at startup, the agent reads only each skill's name and description. Discovered skills are shown on the welcome screen. Instructions are loaded from disk only when a skill is used.
+- **Prompt trigger:** each request is compared to every skill's name and description by word overlap (lowercased, common words removed, word endings normalized). The score is the share of the skill's keywords found in the prompt. The best skill is triggered if it scores at least **0.2**; at most one skill is active per request.
+- **Agent trigger:** when skills exist, the model also gets a `use_skill(name)` tool, so it can load a skill on its own during a task.
+- **Execution:** the active skill's instructions are added to the prompt under `Active skill:`, before the transcript, and the agent carries them out with its normal tools and approval rules.
+- **Logging:** every decision is appended to `.mini-coding-agent/skills.log.jsonl` in the workspace, with the prompt, the score for every skill, the threshold, the trigger (`prompt` or `tool`), and the executed skill. A one-line summary is also printed:
+
+```text
+[skill] validate-environment (score 0.35, prompt)
+[skill] none (best score 0.0 < 0.2, prompt)
+```
+
+Try it on a workspace that has skills:
+
+```bash
+uv run mini-coding-agent --cwd ../Lab4 --max-steps 15
+```
+
+This component was built following a documented development life cycle. See:
+
+- [docs/intent.md](docs/intent.md): the problem and goals
+- [docs/spec.md](docs/spec.md): the design, including the threshold review and known limitations
+- [docs/plan.md](docs/plan.md): the 12-step implementation plan
+- [docs/tests.md](docs/tests.md): unit, regression, and demo results, including the Lab 4 demo
 
 &nbsp;
 ## Requirements

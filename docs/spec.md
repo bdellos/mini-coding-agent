@@ -90,10 +90,10 @@
 - Keep the single-file design of `mini_coding_agent.py`
 
 ## Acceptance criteria
-- [ ] Skills in both folders are discovered.
-- [ ] A grid-validation prompt triggers `validate-environment`.
-- [ ] An unrelated prompt (e.g. "write a hello world script") triggers nothing.
-- [ ] `use_skill` returns the instructions; an unknown name returns an error.
-- [ ] Each decision appears in the log with all the fields above.
-- [ ] Existing agent tests still pass.
-- [ ] The agent uses the Lab 5 skill in the Lab 4 repo, and the log shows it.    
+- [x] Skills in both folders are discovered.
+- [x] A grid-validation prompt triggers `validate-environment`.
+- [x] An unrelated prompt (e.g. "write a hello world script") triggers nothing.
+- [x] `use_skill` returns the instructions; an unknown name returns an error.
+- [x] Each decision appears in the log with all the fields above.
+- [x] Existing agent tests still pass.
+- [x] The agent uses the Lab 5 skill in the Lab 4 repo, and the log shows it.    

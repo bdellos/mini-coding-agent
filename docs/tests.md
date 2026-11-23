@@ -24,7 +24,7 @@
 ## Regression tests
 | ID | What it checks | Expected result | Result |
 |----|----------------|-----------------|--------|
-| R1 | All original repo tests | All pass | PASS: 55 passed, 1 skipped on Python 3.15 and 3.10. The original `main` test file run unmodified against the new code gives 18 passed, 1 skipped, matching the Step 1 baseline. The skip is the symlink test (Windows permissions). Lint shows 13 issues, all pre-existing on `main`, none new.|
+| R1 | All original repo tests | All pass | PASS: 59 passed, 1 skipped on Python 3.15 and 3.10 (55 at Step 8; 4 tests added with the demo fix). The original `main` test file run unmodified against the new code gives 18 passed, 1 skipped, matching the Step 1 baseline. The skip is the symlink test (Windows permissions). Lint shows 13 issues, all pre-existing on `main`, none new.|
 
 ## Demo tests (Lab 4, qwen3.5:4b)
 
@@ -60,7 +60,7 @@ Actual (attempts 2–3, 19:05 and 19:06): Pass. The skill triggered at 0.35 and 
 | The agent uses the Lab 5 skill in the Lab 4 repo, and the log shows it | D1 |
 
 ## Results summary
-## Threshold review (Step 11)
+### Threshold review (Step 11)
 
 | Threshold | Correct (of 17) | Notes |
 |-----------|-----------------|-------|
@@ -71,6 +71,19 @@ Actual (attempts 2–3, 19:05 and 19:06): Pass. The skill triggered at 0.35 and 
 | 0.30 | 9 | |
 
 - Highest score from an unrelated prompt: 0.059. Lowest score from a relevant prompt: 0.15.
-- **Result:** Pass. D1 (0.35) and D2 (0.0) behave as expected at 0.2, so no change was needed.
-  See spec.md for the reasoning and the known limitation.
+- **Result:** Pass. D1 (0.35) and D2 (0.0) behave as expected at 0.2, so no change was needed. See spec.md for the reasoning and the known limitation.
 
+### Overall results
+
+- **Unit tests:** T1–T12 all pass. The full suite has 59 passed, 1 skipped (the symlink test,
+  skipped on Windows) on Python 3.15 and 3.10: the original 18 tests plus 41 for the skills component.
+- **Regression:** the original `main` test file still gives 18 passed, 1 skipped against the new code,
+  matching the Step 1 baseline. No new lint issues.
+- **Demo (Lab 4, qwen3.5:4b):** D1 failed on the first attempt (the agent repeated step 1 until the
+  step limit). The cause was found from the raw model output and fixed (Active skill moved before
+  the transcript, progress cues, short reply for repeated `use_skill`). Attempts 2 and 3 passed and
+  found the real `START_POSITION = (1, 1)` bug in Lab 4. D2 passed in every attempt.
+- **Evidence:** `.mini-coding-agent/skills.log.jsonl` and the session transcripts are committed in the
+  Lab 4 repo (`skills-update` branch).
+- **Threshold:** kept at 0.2 (see Threshold review above and spec.md).
+- **All acceptance criteria met** (see the checklist above).
