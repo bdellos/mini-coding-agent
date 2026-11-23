@@ -63,6 +63,8 @@
     - how it was triggered (prompt or tool)
 - Additionally, print a one-line summary in the terminal, e.g. `[skill] validate-environment (score 0.42, prompt)`.
 - For tool-triggered entries, the prompt is the current user request and scores are left empty.
+- `skill_path`: the path of the executed `SKILL.md`, or NULL if no skill was chosen
+- `requested`: for tool entries, the skill name the model asked for (recorded even if it does not exist).
 
 ## Constraints
 - Run on a small local model (qwen3.5:4b using Ollama)

@@ -44,7 +44,7 @@ IGNORED_PATH_NAMES = {".git", ".mini-coding-agent", "__pycache__", ".pytest_cach
 # 4) Context Reduction And Output Management -> clip, history_text
 # 5) Transcripts, Memory, And Resumption -> SessionStore, record, note_tool, ask, reset
 # 6) Delegation And Bounded Subagents -> tool_delegate
-# 7) Agent Skills -> Skill, parse_skill_file, SkillRegistry, tokenize, normalize_word
+# 7) Agent Skills -> Skill, parse_skill_file, SkillRegistry, tokenize, normalize_word, SkillLogger
 
 
 def now():
@@ -334,6 +334,66 @@ class SkillRegistry:
             "chosen": chosen,
             "best_score": round(best_score, 3),
         }
+
+
+class SkillLogger:
+    """Record every skill decision.
+
+    Each decision is appended as one JSON line to the log file (JSON Lines
+    format), and a one-line summary is passed to `echo` (print by default) so
+    it shows up in the terminal. Logging problems never stop the agent.
+    """
+
+    def __init__(self, path, echo=print):
+        self.path = Path(path)
+        self.echo = echo
+
+    def log_prompt_match(self, prompt, result, skill=None):
+        """Log a similarity check run on the user's prompt."""
+        entry = {
+            "time": now(),
+            "trigger": "prompt",
+            "prompt": prompt,
+            "scores": result["scores"],
+            "threshold": result["threshold"],
+            "chosen": result["chosen"],
+            "skill_path": str(skill.path) if skill else None,
+        }
+        if result["chosen"]:
+            summary = f"[skill] {result['chosen']} (score {result['best_score']}, prompt)"
+        else:
+            summary = f"[skill] none (best score {result['best_score']} < {result['threshold']}, prompt)"
+        self.write(entry, summary)
+        return entry
+
+    def log_tool_use(self, prompt, requested, skill=None):
+        """Log a use_skill tool call. No similarity check runs, so scores are empty."""
+        entry = {
+            "time": now(),
+            "trigger": "tool",
+            "prompt": prompt,
+            "scores": {},
+            "threshold": None,
+            "chosen": skill.name if skill else None,
+            "requested": requested,
+            "skill_path": str(skill.path) if skill else None,
+        }
+        if skill:
+            summary = f"[skill] {skill.name} (tool)"
+        else:
+            summary = f"[skill] none (tool requested unknown skill '{requested}')"
+        self.write(entry, summary)
+        return entry
+
+    def write(self, entry, summary):
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with self.path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(entry) + "\n")
+        except OSError as exc:
+            summary += f" [warning: could not write skill log: {exc}]"
+        if self.echo:
+            self.echo(summary)
 
 
 class FakeModelClient:

@@ -18,8 +18,8 @@
 | T8 | Prompt trigger | Matching prompt with the fake model | Skill text appears under "Active skill" in the prompt | |
 | T9 | Tool trigger | `use_skill` with a known name | Returns the skill's instructions | |
 | T10 | Tool trigger | `use_skill` with an unknown name | Error listing valid names | |
-| T11 | Logging | Prompt-triggered decision | Log line has time, prompt, all scores, threshold, chosen skill, trigger `prompt` | |
-| T12 | Logging | Tool-triggered decision | Log line has trigger `tool` and empty scores | |
+| T11 | Logging | Prompt-triggered decision | Log line has time, prompt, all scores, threshold, chosen skill, trigger `prompt` | PASS|
+| T12 | Logging | Tool-triggered decision | Log line has trigger `tool` and empty scores | PASS|
 
 ## Regression tests
 | ID | What it checks | Expected result | Result |

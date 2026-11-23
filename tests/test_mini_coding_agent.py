@@ -7,6 +7,7 @@ from mini_coding_agent import (
     MiniAgent,
     OllamaModelClient,
     SessionStore,
+    SkillLogger,
     SkillRegistry,
     WorkspaceContext,
     build_welcome,
@@ -558,3 +559,95 @@ def test_match_with_no_skills_chooses_nothing(tmp_path):
     result = SkillRegistry.discover(tmp_path).match("Validate the grid environment boundaries")
 
     assert result == {"scores": {}, "threshold": 0.2, "chosen": None, "best_score": 0.0}
+
+
+# ---------------------------------------------------------------------------
+# 7) Agent Skills: logging (plan.md Step 4, tests.md T11-T12)
+# ---------------------------------------------------------------------------
+def read_log(path):
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+def test_prompt_match_is_logged_with_all_fields(tmp_path):
+    registry = build_lab5_registry(tmp_path)
+    log_path = tmp_path / ".mini-coding-agent" / "skills.log.jsonl"
+    printed = []
+    logger = SkillLogger(log_path, echo=printed.append)
+    prompt = "Validate the grid environment boundaries"
+    result = registry.match(prompt)
+
+    logger.log_prompt_match(prompt, result, registry.get(result["chosen"]))
+
+    [entry] = read_log(log_path)
+    assert {"time", "prompt", "scores", "threshold", "chosen", "trigger"} <= set(entry)
+    assert entry["trigger"] == "prompt"
+    assert entry["prompt"] == prompt
+    assert set(entry["scores"]) == {"validate-environment", "analyze-episode"}
+    assert entry["threshold"] == 0.2
+    assert entry["chosen"] == "validate-environment"
+    assert entry["skill_path"].endswith("SKILL.md")
+    assert printed == [f"[skill] validate-environment (score {result['best_score']}, prompt)"]
+
+
+def test_prompt_with_no_match_is_still_logged(tmp_path):
+    registry = build_lab5_registry(tmp_path)
+    log_path = tmp_path / ".mini-coding-agent" / "skills.log.jsonl"
+    printed = []
+    logger = SkillLogger(log_path, echo=printed.append)
+    result = registry.match("Write a hello world script")
+
+    logger.log_prompt_match("Write a hello world script", result)
+
+    [entry] = read_log(log_path)
+    assert entry["chosen"] is None
+    assert entry["skill_path"] is None
+    assert set(entry["scores"]) == {"validate-environment", "analyze-episode"}
+    assert printed[0].startswith("[skill] none")
+
+
+def test_tool_use_is_logged_with_tool_trigger_and_empty_scores(tmp_path):
+    registry = build_lab5_registry(tmp_path)
+    log_path = tmp_path / ".mini-coding-agent" / "skills.log.jsonl"
+    printed = []
+    logger = SkillLogger(log_path, echo=printed.append)
+
+    logger.log_tool_use("Inspect the environment", "validate-environment", registry.get("validate-environment"))
+    logger.log_tool_use("Inspect the environment", "made-up-skill", None)
+
+    found, missing = read_log(log_path)
+    assert found["trigger"] == "tool"
+    assert found["scores"] == {}
+    assert found["chosen"] == "validate-environment"
+    assert found["prompt"] == "Inspect the environment"
+    assert missing["chosen"] is None
+    assert missing["requested"] == "made-up-skill"
+    assert printed == [
+        "[skill] validate-environment (tool)",
+        "[skill] none (tool requested unknown skill 'made-up-skill')",
+    ]
+
+
+def test_log_appends_one_line_per_decision(tmp_path):
+    registry = build_lab5_registry(tmp_path)
+    log_path = tmp_path / ".mini-coding-agent" / "skills.log.jsonl"
+    logger = SkillLogger(log_path, echo=None)
+
+    for prompt in ["Validate the grid environment boundaries", "Write a hello world script", "Analyze this episode"]:
+        logger.log_prompt_match(prompt, registry.match(prompt))
+
+    assert [entry["prompt"] for entry in read_log(log_path)] == [
+        "Validate the grid environment boundaries",
+        "Write a hello world script",
+        "Analyze this episode",
+    ]
+
+
+def test_log_write_failure_does_not_crash(tmp_path):
+    blocker = tmp_path / "not-a-folder"
+    blocker.write_text("this is a file, so it cannot hold the log", encoding="utf-8")
+    printed = []
+    logger = SkillLogger(blocker / "skills.log.jsonl", echo=printed.append)
+
+    logger.log_tool_use("anything", "missing", None)
+
+    assert "could not write skill log" in printed[0]
