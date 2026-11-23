@@ -45,7 +45,7 @@ IGNORED_PATH_NAMES = {".git", ".mini-coding-agent", "__pycache__", ".pytest_cach
 # 5) Transcripts, Memory, And Resumption -> SessionStore, record, note_tool, ask, reset
 # 6) Delegation And Bounded Subagents -> tool_delegate
 # 7) Agent Skills -> Skill, parse_skill_file, SkillRegistry, tokenize, normalize_word, SkillLogger,
-#    trigger_skill_from_prompt, active_skill_text
+#    trigger_skill_from_prompt, active_skill_text, skills_text, tool_use_skill
 
 
 def now():
@@ -497,7 +497,8 @@ class MiniAgent:
         # so the use_skill tool and the skill list in the prompt can use them.
         self.skills = skills if skills is not None else SkillRegistry.discover(self.root)
         self.skill_logger = SkillLogger(self.root / ".mini-coding-agent" / SKILL_LOG_NAME)
-        self.active_skill = None  # set per request by trigger_skill_from_prompt()
+        self.active_skill = None  # set per request by trigger_skill_from_prompt() or use_skill
+        self.current_request = ""  # the user request being handled, for the skill log
         self.tools = self.build_tools()
         self.prefix = self.build_prefix()
         self.session_path = self.session_store.save(self.session)
@@ -570,6 +571,15 @@ class MiniAgent:
                 "description": "Ask a bounded read-only child agent to investigate.",
                 "run": self.tool_delegate,
             }
+        # 7) Agent Skills: only offered when the workspace actually has skills,
+        # so a small model is not distracted by a tool it cannot use.
+        if len(self.skills):
+            tools["use_skill"] = {
+                "schema": {"name": "str"},
+                "risky": False,
+                "description": "Load a skill's step-by-step instructions by name (see Skills below), then follow them.",
+                "run": self.tool_use_skill,
+            }
         return tools
 
     ############################################
@@ -610,13 +620,27 @@ class MiniAgent:
             "- Do not repeat the same tool call with the same arguments if it did not help. Choose a different tool or return a final answer.",
             "- Required tool arguments must not be empty. Do not call read_file, write_file, patch_file, run_shell, or delegate with args={}.",
         ])
-        return "\n\n".join([
+        sections = [
             "You are Mini-Coding-Agent, a small local coding agent running through Ollama.",
             "Rules:\n" + rules,
             "Tools:\n" + tool_text,
+        ]
+        # 7) Agent Skills: list available skills (name + description only).
+        if "use_skill" in self.tools:
+            sections[1] += (
+                "\n- If a skill listed under Skills fits the task and no Active skill is shown, "
+                "call use_skill with its name, then follow its instructions."
+            )
+            sections.append("Skills:\n" + self.skills_text())
+            examples += "\n" + self.tool_example("use_skill")
+        sections.extend([
             "Valid response examples:\n" + examples,
             self.workspace.text(),
         ])
+        return "\n\n".join(sections)
+
+    def skills_text(self):
+        return "\n".join(f"- {skill.name}: {clip(skill.description, 200)}" for skill in self.skills)
 
     def memory_text(self):
         memory = self.session["memory"]
@@ -726,6 +750,7 @@ class MiniAgent:
         if not memory["task"]:
             memory["task"] = clip(user_message.strip(), 300)
         self.record({"role": "user", "content": user_message, "created_at": now()})
+        self.current_request = user_message
         self.trigger_skill_from_prompt(user_message)
 
         tool_steps = 0
@@ -811,6 +836,9 @@ class MiniAgent:
             "patch_file": '<tool name="patch_file" path="binary_search.py"><old_text>return -1</old_text><new_text>return mid</new_text></tool>',
             "delegate": '<tool>{"name":"delegate","args":{"task":"inspect README.md","max_steps":3}}</tool>',
         }
+        if len(self.skills):
+            first = json.dumps({"name": "use_skill", "args": {"name": self.skills.names()[0]}})
+            examples["use_skill"] = f"<tool>{first}</tool>"
         return examples.get(name, "")
 
     def validate_tool(self, name, args):
@@ -877,6 +905,12 @@ class MiniAgent:
             task = str(args.get("task", "")).strip()
             if not task:
                 raise ValueError("task must not be empty")
+            return
+
+        # Unknown skill names are handled (and logged) by tool_use_skill itself.
+        if name == "use_skill":
+            if not str(args.get("name", "")).strip():
+                raise ValueError("name must not be empty")
             return
 
     def approve(self, name, args):
@@ -1120,6 +1154,30 @@ class MiniAgent:
             raise ValueError(f"old_text must occur exactly once, found {count}")
         path.write_text(text.replace(old_text, str(args["new_text"]), 1), encoding="utf-8")
         return f"patched {path.relative_to(self.root)}"
+
+    ###################################################
+    #### 7) Agent Skills (Continued): use_skill #######
+    ###################################################
+    def tool_use_skill(self, args):
+        """Agent-triggered skill: the model asks for a skill by name mid-task.
+
+        Every call is logged with trigger "tool". A found skill also becomes the
+        Active skill for the rest of this request, so its instructions stay in
+        the prompt even after this tool result is shortened in the transcript.
+        """
+        requested = str(args.get("name", "")).strip()
+        skill = self.skills.get(requested) or next(
+            (item for item in self.skills if item.name.lower() == requested.lower()), None
+        )
+        self.skill_logger.log_tool_use(self.current_request, requested, skill)
+        if skill is None:
+            valid = ", ".join(self.skills.names()) or "none"
+            return f"error: unknown skill '{requested}'. Valid skill names: {valid}"
+        self.active_skill = {"name": skill.name, "instructions": skill.instructions()}
+        return "\n".join([
+            f"Loaded skill '{skill.name}'. It is now shown under Active skill. Instructions:",
+            clip(self.active_skill["instructions"], MAX_SKILL_CHARS),
+        ])
 
     ###################################################
     #### 6) Delegation And Bounded Subagents ##########

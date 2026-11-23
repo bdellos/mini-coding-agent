@@ -788,3 +788,100 @@ def test_long_skill_instructions_are_clipped(tmp_path):
     assert "x" * 2000 in sent
     assert "x" * 2001 not in sent
     assert "[truncated" in sent
+
+
+# ---------------------------------------------------------------------------
+# 7) Agent Skills: the use_skill tool (plan.md Step 7, tests.md T9-T10)
+# ---------------------------------------------------------------------------
+def test_use_skill_returns_instructions_for_known_name(tmp_path):
+    agent = build_skill_agent(tmp_path, [])
+    agent.current_request = "Check the grid"
+
+    result = agent.run_tool("use_skill", {"name": "validate-environment"})
+
+    assert VALIDATE_STEPS in result
+    assert agent.active_skill["name"] == "validate-environment"
+
+
+def test_use_skill_unknown_name_lists_valid_names(tmp_path):
+    agent = build_skill_agent(tmp_path, [])
+
+    result = agent.run_tool("use_skill", {"name": "made-up-skill"})
+
+    assert result.startswith("error: unknown skill 'made-up-skill'")
+    assert "analyze-episode" in result
+    assert "validate-environment" in result
+    assert agent.active_skill is None
+
+
+def test_use_skill_ignores_capitalization(tmp_path):
+    agent = build_skill_agent(tmp_path, [])
+
+    result = agent.run_tool("use_skill", {"name": "Validate-Environment"})
+
+    assert VALIDATE_STEPS in result
+
+
+def test_use_skill_rejects_empty_name(tmp_path):
+    agent = build_skill_agent(tmp_path, [])
+
+    result = agent.run_tool("use_skill", {})
+
+    assert result.startswith("error: invalid arguments for use_skill: name must not be empty")
+    assert "use_skill" in result.split("example:")[1]
+
+
+def test_use_skill_calls_are_logged_as_tool(tmp_path):
+    agent = build_skill_agent(
+        tmp_path,
+        [
+            '<tool>{"name":"use_skill","args":{"name":"analyze-episode"}}</tool>',
+            '<tool>{"name":"use_skill","args":{"name":"nope"}}</tool>',
+            "<final>Done.</final>",
+        ],
+    )
+
+    agent.ask("Write a hello world script")
+
+    entries = read_log(tmp_path / ".mini-coding-agent" / "skills.log.jsonl")
+    prompt_entry, found, missing = entries
+    assert prompt_entry["trigger"] == "prompt" and prompt_entry["chosen"] is None
+    assert found["trigger"] == "tool"
+    assert found["chosen"] == "analyze-episode"
+    assert found["scores"] == {}
+    assert found["prompt"] == "Write a hello world script"
+    assert missing["chosen"] is None and missing["requested"] == "nope"
+
+
+def test_skill_loaded_by_tool_shows_as_active_skill_on_later_steps(tmp_path):
+    agent = build_skill_agent(
+        tmp_path,
+        [
+            '<tool>{"name":"use_skill","args":{"name":"validate-environment"}}</tool>',
+            "<final>Done.</final>",
+        ],
+    )
+
+    agent.ask("Write a hello world script")
+
+    first, second = agent.model_client.prompts
+    assert "Active skill:" not in first
+    assert "Active skill:" in second
+    assert "- name: validate-environment" in second
+
+
+def test_prompt_lists_skills_and_use_skill_tool(tmp_path):
+    agent = build_skill_agent(tmp_path, [])
+
+    assert "Skills:" in agent.prefix.splitlines()
+    assert "- validate-environment: " + LAB5_VALIDATE in agent.prefix
+    assert "- use_skill(name: str) [safe]" in agent.prefix
+    assert '"name": "use_skill"' in agent.prefix
+
+
+def test_no_skills_means_no_use_skill_tool(tmp_path):
+    agent = build_agent(tmp_path, [])
+
+    assert "use_skill" not in agent.tools
+    assert "use_skill" not in agent.prefix
+    assert "Skills:" not in agent.prefix.splitlines()

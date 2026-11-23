@@ -47,6 +47,10 @@
 - If the name does not match any skill, the tool returns an error that lists the valid skill names.
 - The tool is marked "safe" and does not require approval, it only reads a file.
 - Each time `use_skill` is called, it is logged with trigger type `tool`.
+- The `use_skill` tool and the Skills list only appear when at least one skill exists.
+- Skill names are matched without regard to capitalisation.
+- A skill loaded with `use_skill` becomes the Active skill for the rest of the request, replacing any prompt-triggered skill.
+- Each skill description in the list is capped at 200 characters.
 
 ## Executing a skill
 - A skill's instructions are added to the agent's prompt under the heading "Active skill".
