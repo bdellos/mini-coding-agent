@@ -8,9 +8,9 @@
 
 | ID | Area | What it checks | Expected result | Result |
 |----|------|----------------|-----------------|--------|
-| T1 | Discovery | Skills in `skills/` and `.claude/skills/` are found | Both skills listed | |
-| T2 | Discovery | A `SKILL.md` missing name or description is skipped | Skipped, no crash | |
-| T3 | Discovery | Same skill name in both folders | `skills/` version wins | |
+| T1 | Discovery | Skills in `skills/` and `.claude/skills/` are found | Both skills listed | PASS|
+| T2 | Discovery | A `SKILL.md` missing name or description is skipped | Skipped, no crash | PASS|
+| T3 | Discovery | Same skill name in both folders | `skills/` version wins | PASS|
 | T4 | Discovery | Workspace with no skill folders | Agent starts normally, no skills | |
 | T5 | Similarity | "Validate the grid environment boundaries" | Picks `validate-environment` | |
 | T6 | Similarity | "Write a hello world script" | No skill chosen | |
@@ -24,7 +24,7 @@
 ## Regression tests
 | ID | What it checks | Expected result | Result |
 |----|----------------|-----------------|--------|
-| R1 | All original repo tests | All pass | |
+| R1 | All original repo tests | All pass | 18 passed, 1 skipped (baseline)|
 
 ## Demo tests (Lab 4, qwen3.5:4b)
 

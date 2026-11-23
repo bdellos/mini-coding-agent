@@ -36,7 +36,7 @@ MAX_HISTORY = 12000
 IGNORED_PATH_NAMES = {".git", ".mini-coding-agent", "__pycache__", ".pytest_cache", ".ruff_cache", ".venv", "venv"}
 
 ##############################
-#### Six Agent Components ####
+#### Agent Components ########
 ##############################
 # 1) Live Repo Context -> WorkspaceContext
 # 2) Prompt Shape And Cache Reuse -> build_prefix, memory_text, prompt
@@ -44,6 +44,7 @@ IGNORED_PATH_NAMES = {".git", ".mini-coding-agent", "__pycache__", ".pytest_cach
 # 4) Context Reduction And Output Management -> clip, history_text
 # 5) Transcripts, Memory, And Resumption -> SessionStore, record, note_tool, ask, reset
 # 6) Delegation And Bounded Subagents -> tool_delegate
+# 7) Agent Skills -> Skill, parse_skill_file, SkillRegistry
 
 
 def now():
@@ -162,6 +163,105 @@ class SessionStore:
     def latest(self):
         files = sorted(self.root.glob("*.json"), key=lambda path: path.stat().st_mtime)
         return files[-1].stem if files else None
+
+
+##############################
+#### 7) Agent Skills #########
+##############################
+# Folders searched for skills, relative to the workspace root. Earlier folders
+# win when two skills share a name, so `skills/` overrides `.claude/skills/`.
+SKILL_DIRS = ("skills", ".claude/skills")
+SKILL_FILE = "SKILL.md"
+
+
+def parse_skill_file(path):
+    """Read a SKILL.md file.
+
+    The file must start with a frontmatter block between two `---` lines that
+    holds at least `name:` and `description:`. Everything after the block is
+    the skill's instructions. Returns a dict with name, description and
+    instructions, or None if the file is missing that frontmatter.
+    """
+    text = Path(path).read_text(encoding="utf-8", errors="replace").lstrip("﻿")
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+    end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
+    if end is None:
+        return None
+
+    meta = {}
+    for line in lines[1:end]:
+        key, sep, value = line.partition(":")
+        if sep:
+            meta[key.strip().lower()] = value.strip().strip("\"'")
+    name = meta.get("name", "")
+    description = meta.get("description", "")
+    if not name or not description:
+        return None
+    return {
+        "name": name,
+        "description": description,
+        "instructions": "\n".join(lines[end + 1:]).strip(),
+    }
+
+
+class Skill:
+    """One discovered skill.
+
+    Only the name and description are kept in memory. The instructions are
+    read from disk when the skill is actually used (progressive disclosure),
+    so unused skills never take up space in the model's prompt.
+    """
+
+    def __init__(self, name, description, path):
+        self.name = name
+        self.description = description
+        self.path = Path(path)
+
+    def instructions(self):
+        parsed = parse_skill_file(self.path)
+        return parsed["instructions"] if parsed else ""
+
+
+class SkillRegistry:
+    """All skills available in a workspace, keyed by name."""
+
+    def __init__(self, skills=None):
+        self.skills = dict(skills or {})
+
+    @classmethod
+    def discover(cls, root):
+        root = Path(root)
+        skills = {}
+        for rel in SKILL_DIRS:
+            base = root / rel
+            if not base.is_dir():
+                continue
+            for folder in sorted(path for path in base.iterdir() if path.is_dir()):
+                skill_path = folder / SKILL_FILE
+                if not skill_path.is_file():
+                    continue
+                try:
+                    parsed = parse_skill_file(skill_path)
+                except OSError:
+                    continue
+                if parsed is None or parsed["name"] in skills:
+                    continue
+                skills[parsed["name"]] = Skill(parsed["name"], parsed["description"], skill_path)
+        return cls(skills)
+
+    def get(self, name):
+        return self.skills.get(name)
+
+    def names(self):
+        return list(self.skills)
+
+    def __len__(self):
+        return len(self.skills)
+
+    def __iter__(self):
+        return iter(self.skills.values())
 
 
 class FakeModelClient:

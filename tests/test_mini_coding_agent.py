@@ -7,6 +7,7 @@ from mini_coding_agent import (
     MiniAgent,
     OllamaModelClient,
     SessionStore,
+    SkillRegistry,
     WorkspaceContext,
     build_welcome,
 )
@@ -397,3 +398,72 @@ def test_ollama_client_posts_expected_payload():
     assert captured["body"]["raw"] is False
     assert captured["body"]["think"] is False
     assert captured["body"]["options"]["num_predict"] == 42
+
+
+# ---------------------------------------------------------------------------
+# 7) Agent Skills: discovery (plan.md Step 2, tests.md T1-T3)
+# ---------------------------------------------------------------------------
+def write_skill(base, folder, name="demo", description="A demo skill.", body="1. Do the thing."):
+    skill_dir = base / folder
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: {description}\n---\n{body}\n",
+        encoding="utf-8",
+    )
+    return skill_dir / "SKILL.md"
+
+
+def test_discover_finds_skills_in_both_folders(tmp_path):
+    write_skill(tmp_path / "skills", "pr-review", name="pr-review", description="Review a pull request.")
+    write_skill(tmp_path / ".claude" / "skills", "validate-environment", name="validate-environment", description="Validate the grid.")
+
+    registry = SkillRegistry.discover(tmp_path)
+
+    assert sorted(registry.names()) == ["pr-review", "validate-environment"]
+    assert registry.get("validate-environment").description == "Validate the grid."
+
+
+def test_discover_skips_invalid_skill_files(tmp_path):
+    skills = tmp_path / "skills"
+    write_skill(skills, "good", name="good")
+    (skills / "no-skill-file").mkdir()
+    (skills / "no-frontmatter").mkdir()
+    (skills / "no-frontmatter" / "SKILL.md").write_text("Just instructions.\n", encoding="utf-8")
+    (skills / "no-description").mkdir()
+    (skills / "no-description" / "SKILL.md").write_text("---\nname: no-description\n---\nBody\n", encoding="utf-8")
+    (skills / "unclosed").mkdir()
+    (skills / "unclosed" / "SKILL.md").write_text("---\nname: unclosed\ndescription: Never closed.\n", encoding="utf-8")
+
+    registry = SkillRegistry.discover(tmp_path)
+
+    assert registry.names() == ["good"]
+
+
+def test_skills_folder_wins_on_duplicate_name(tmp_path):
+    write_skill(tmp_path / "skills", "dup", name="dup", description="From skills folder.")
+    write_skill(tmp_path / ".claude" / "skills", "dup", name="dup", description="From .claude folder.")
+
+    registry = SkillRegistry.discover(tmp_path)
+
+    assert len(registry) == 1
+    assert registry.get("dup").description == "From skills folder."
+
+
+def test_discover_with_no_skill_folders_is_empty(tmp_path):
+    registry = SkillRegistry.discover(tmp_path)
+
+    assert len(registry) == 0
+    assert registry.get("anything") is None
+
+
+def test_skill_instructions_are_loaded_on_demand(tmp_path):
+    path = write_skill(tmp_path / "skills", "demo", body="1. Read src/environment.py\n2. Report boundaries")
+    registry = SkillRegistry.discover(tmp_path)
+    skill = registry.get("demo")
+
+    # The registry only holds name/description; instructions come from disk when asked.
+    assert not hasattr(skill, "body")
+    assert skill.instructions() == "1. Read src/environment.py\n2. Report boundaries"
+
+    path.write_text("---\nname: demo\ndescription: A demo skill.\n---\nUpdated steps\n", encoding="utf-8")
+    assert skill.instructions() == "Updated steps"
