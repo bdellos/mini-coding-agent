@@ -53,7 +53,7 @@
 - Each skill description in the list is capped at 200 characters.
 
 ## Executing a skill
-- A skill's instructions are added to the agent's prompt under the heading "Active skill".
+- The Active skill section is placed before the transcript, so the most recent tool results are read last. It tells the model to track its progress through the steps. Calling `use_skill` for the already-active skill returns a short reminder instead of reloading it
 - The agent follows the instructions with its existing tools.
 - Any risky step (e.g. running a command) requires user approval.
 - Instructions are capped at 2,000 characters.

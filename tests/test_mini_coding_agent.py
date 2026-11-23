@@ -718,7 +718,8 @@ def test_matching_prompt_puts_skill_under_active_skill(tmp_path):
     assert "- name: validate-environment" in sent
     assert VALIDATE_STEPS in sent
     assert "1. Look for loops" not in sent  # only the chosen skill is loaded
-    assert sent.index("Active skill:") < sent.index("Current user request:")
+    # Demo fix: skill goes before the transcript, so the latest tool results are read last.
+    assert sent.index("Active skill:") < sent.index("Transcript:") < sent.index("Current user request:")
 
 
 def test_unrelated_prompt_adds_no_active_skill(tmp_path):
@@ -885,3 +886,72 @@ def test_no_skills_means_no_use_skill_tool(tmp_path):
     assert "use_skill" not in agent.tools
     assert "use_skill" not in agent.prefix
     assert "Skills:" not in agent.prefix.splitlines()
+
+
+# ---------------------------------------------------------------------------
+# 7) Agent Skills: fixes from the first Lab 4 demo run (tests.md D1, attempt 1)
+# ---------------------------------------------------------------------------
+def test_active_skill_tells_model_to_track_progress(tmp_path):
+    agent = build_skill_agent(tmp_path, ["<final>Done.</final>"])
+
+    agent.ask("Validate the grid environment boundaries")
+
+    sent = agent.model_client.prompts[0]
+    assert "already loaded; do not call use_skill again" in sent
+    assert "Check the Transcript for steps already done and do the next one." in sent
+    assert "When the steps are done, reply with <final>." in sent
+
+
+def test_latest_tool_result_comes_after_skill_instructions(tmp_path):
+    (tmp_path / "notes.txt").write_text("grid notes\n", encoding="utf-8")
+    agent = build_skill_agent(
+        tmp_path,
+        [
+            '<tool>{"name":"read_file","args":{"path":"notes.txt","start":1,"end":1}}</tool>',
+            "<final>Done.</final>",
+        ],
+    )
+
+    agent.ask("Validate the grid environment boundaries")
+
+    second = agent.model_client.prompts[1]
+    # rindex: the memory section (before the skill) also quotes the file in a
+    # short note; the transcript copy is the last occurrence.
+    assert second.index(VALIDATE_STEPS) < second.rindex("grid notes")
+    assert second.rindex("grid notes") > second.index("Transcript:")
+
+
+def test_use_skill_for_already_active_skill_returns_short_nudge(tmp_path):
+    agent = build_skill_agent(
+        tmp_path,
+        [
+            '<tool>{"name":"use_skill","args":{"name":"validate-environment"}}</tool>',
+            "<final>Done.</final>",
+        ],
+    )
+
+    agent.ask("Validate the grid environment boundaries")
+
+    [tool_event] = [item for item in agent.session["history"] if item["role"] == "tool"]
+    assert tool_event["content"].startswith("Skill 'validate-environment' is already active")
+    assert VALIDATE_STEPS not in tool_event["content"]
+    prompt_entry, tool_entry = read_log(tmp_path / ".mini-coding-agent" / "skills.log.jsonl")
+    assert prompt_entry["trigger"] == "prompt"
+    assert tool_entry["trigger"] == "tool" and tool_entry["chosen"] == "validate-environment"
+
+
+def test_use_skill_for_a_different_skill_replaces_active_skill(tmp_path):
+    agent = build_skill_agent(
+        tmp_path,
+        [
+            '<tool>{"name":"use_skill","args":{"name":"analyze-episode"}}</tool>',
+            "<final>Done.</final>",
+        ],
+    )
+
+    agent.ask("Validate the grid environment boundaries")
+
+    assert agent.active_skill["name"] == "analyze-episode"
+    second = agent.model_client.prompts[1]
+    assert "- name: analyze-episode" in second
+    assert "- name: validate-environment" not in second

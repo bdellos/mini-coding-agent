@@ -689,24 +689,26 @@ class MiniAgent:
     #### 2) Prompt Shape And Cache Reuse (Continued) #######
     ########################################################
     def prompt(self, user_message):
-        sections = [
-            self.prefix,
-            self.memory_text(),
-            "Transcript:\n" + self.history_text(),
-        ]
-        # 7) Agent Skills: the active skill sits right before the request so a
-        # small model reads the instructions next to the task they apply to.
+        sections = [self.prefix, self.memory_text()]
+        # 7) Agent Skills: the active skill goes BEFORE the transcript. In the
+        # Lab 4 demo, placing it after the transcript made qwen3.5:4b re-run
+        # step 1 on every turn, because step 1 was the last thing it read.
+        # With the skill first, the latest tool results come last instead.
         if self.active_skill:
             sections.append(self.active_skill_text())
-        sections.append("Current user request:\n" + user_message)
+        sections.extend([
+            "Transcript:\n" + self.history_text(),
+            "Current user request:\n" + user_message,
+        ])
         return "\n\n".join(sections)
 
     def active_skill_text(self):
         skill = self.active_skill
         return "\n".join([
             "Active skill:",
-            f"- name: {skill['name']}",
-            "- Follow these skill instructions to handle the current user request, using your tools for each step:",
+            f"- name: {skill['name']} (already loaded; do not call use_skill again)",
+            "- Follow these steps in order. Check the Transcript for steps already done and do the next one.",
+            "- Do not repeat a tool call already in the Transcript. When the steps are done, reply with <final>.",
             clip(skill["instructions"], MAX_SKILL_CHARS),
         ])
 
@@ -1164,6 +1166,9 @@ class MiniAgent:
         Every call is logged with trigger "tool". A found skill also becomes the
         Active skill for the rest of this request, so its instructions stay in
         the prompt even after this tool result is shortened in the transcript.
+        Asking again for the skill that is already active returns a short nudge
+        instead of the full instructions (the demo showed a small model doing
+        this repeatedly and wasting its steps).
         """
         requested = str(args.get("name", "")).strip()
         skill = self.skills.get(requested) or next(
@@ -1173,6 +1178,8 @@ class MiniAgent:
         if skill is None:
             valid = ", ".join(self.skills.names()) or "none"
             return f"error: unknown skill '{requested}'. Valid skill names: {valid}"
+        if self.active_skill and self.active_skill["name"] == skill.name:
+            return f"Skill '{skill.name}' is already active (see Active skill). Continue with its next step."
         self.active_skill = {"name": skill.name, "instructions": skill.instructions()}
         return "\n".join([
             f"Loaded skill '{skill.name}'. It is now shown under Active skill. Instructions:",
